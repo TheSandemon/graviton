@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Graviton — Particle Gravity Lab</title>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@300;500;700&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background: #0a0a0a;
+      color: #e0e0e0;
+      font-family: 'Rajdhani', sans-serif;
+      overflow: hidden;
+      height: 100vh;
+      width: 100vw;
+    }
+
+    canvas {
+      display: block;
+      position: absolute;
+      top: 0; left: 0;
+    }
+
+    .ui-layer {
+      position: absolute;
+      z-index: 10;
+      pointer-events: none;
+    }
+
+    .title-card {
+      top: 30px;
+      left: 40px;
+    }
+
+    .title-card h1 {
+      font-family: 'Orbitron', sans-serif;
+      font-size: 2.4rem;
+      font-weight: 900;
+      color: #D4A853;
+      text-shadow: 0 0 30px rgba(212, 168, 83, 0.5);
+      letter-spacing: 4px;
+    }
+
+    .title-card p {
+      font-size: 1rem;
+      color: #888;
+      letter-spacing: 2px;
+      margin-top: 5px;
+      text-transform: uppercase;
+    }
+
+    .stats-panel {
+      top: 30px;
+      right: 40px;
+      text-align: right;
+    }
+
+    .stat {
+      font-family: 'Orbitron', sans-serif;
+      font-size: 0.85rem;
+      color: #00ff88;
+      margin-bottom: 8px;
+      text-shadow: 0 0 10px rgba(0, 255, 136, 0.5);
+    }
+
+    .stat span {
+      color: #D4A853;
+      font-weight: 700;
+    }
+
+    .controls-panel {
+      bottom: 40px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      gap: 15px;
+      pointer-events: all;
+    }
+
+    .btn {
+      background: rgba(212, 168, 83, 0.1);
+      border: 1px solid #D4A853;
+      color: #D4A853;
+      padding: 10px 24px;
+      font-family: 'Orbitron', sans-serif;
+      font-size: 0.75rem;
+      letter-spacing: 2px;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      text-transform: uppercase;
+    }
+
+    .btn:hover {
+      background: rgba(212, 168, 83, 0.25);
+      box-shadow: 0 0 20px rgba(212, 168, 83, 0.3);
+    }
+
+    .btn.active {
+      background: #D4A853;
+      color: #0a0a0a;
+    }
+
+    .mode-indicator {
+      bottom: 40px;
+      right: 40px;
+      font-family: 'Orbitron', sans-serif;
+      font-size: 0.7rem;
+      color: #555;
+      letter-spacing: 2px;
+    }
+
+    .mode-indicator span {
+      color: #00ff88;
+      text-shadow: 0 0 8px rgba(0, 255, 136, 0.5);
+    }
+  </style>
+</head>
+<body>
+  <canvas id="canvas"></canvas>
+
+  <div class="ui-layer title-card">
+    <h1>GRAVITON</h1>
+    <p>Particle Gravity Laboratory</p>
+  </div>
+
+  <div class="ui-layer stats-panel">
+    <div class="stat">PARTICLES <span id="particleCount">0</span></div>
+    <div class="stat">GRAVITY <span id="gravityVal">1.0</span></div>
+    <div class="stat">MODE <span id="modeLabel">ATTRACT</span></div>
+  </div>
+
+  <div class="ui-layer controls-panel">
+    <button class="btn active" id="btnAttract">ATTRACT</button>
+    <button class="btn" id="btnRepel">REPEL</button>
+    <button class="btn" id="btnVortex">VORTEX</button>
+    <button class="btn" id="btnChaos">CHAOS</button>
+    <button class="btn" id="btnReset">RESET</button>
+  </div>
+
+  <div class="ui-layer mode-indicator">
+    INTERACTIVE — CLICK TO SPAWN
+  </div>
+
+  <script>
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+
+    let W, H;
+    let particles = [];
+    let mouseX = 0, mouseY = 0;
+    let mouseRadius = 180;
+    let gravity = 0.15;
+    let mode = 'attract';
+    let time = 0;
+
+    const colors = ['#D4A853', '#00ff88', '#ff6b6b', '#4ecdc4', '#a855f7'];
+
+    function resize() {
+      W = canvas.width = window.innerWidth;
+      H = canvas.height = window.innerHeight;
+    }
+    resize();
+    window.addEventListener('resize', resize);
+
+    class Particle {
+      constructor(x, y) {
+        this.x = x || Math.random() * W;
+        this.y = y || Math.random() * H;
+        this.vx = (Math.random() - 0.5) * 2;
+        this.vy = (Math.random() - 0.5) * 2;
+        this.radius = Math.random() * 3 + 1;
+        this.color = colors[Math.floor(Math.random() * colors.length)];
+        this.alpha = Math.random() * 0.5 + 0.5;
+        this.life = 1;
+        this.decay = Math.random() * 0.003 + 0.001;
+      }
+
+      update() {
+        const dx = mouseX - this.x;
+        const dy = mouseY - this.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+
+        if (dist < mouseRadius && dist > 0) {
+          const force = (mouseRadius - dist) / mouseRadius;
+          const nx = dx / dist;
+          const ny = dy / dist;
+
+          if (mode === 'attract') {
+            this.vx += nx * gravity * force;
+            this.vy += ny * gravity * force;
+          } else if (mode === 'repel') {
+            this.vx -= nx * gravity * force * 2;
+            this.vy -= ny * gravity * force * 2;
+          } else if (mode === 'vortex') {
+            const perpX = -ny;
+            const perpY = nx;
+            this.vx += perpX * gravity * force * 1.5;
+            this.vy += perpY * gravity * force * 1.5;
+            this.vx += nx * gravity * force * 0.3;
+            this.vy += ny * gravity * force * 0.3;
+          } else if (mode === 'chaos') {
+            this.vx += (Math.random() - 0.5) * gravity * force * 3;
+            this.vy += (Math.random() - 0.5) * gravity * force * 3;
+          }
+        }
+
+        // Gentle global pull toward center
+        const cdx = W/2 - this.x;
+        const cdy = H/2 - this.y;
+        this.vx += cdx * 0.00005;
+        this.vy += cdy * 0.00005;
+
+        // Damping
+        this.vx *= 0.98;
+        this.vy *= 0.98;
+
+        this.x += this.vx;
+        this.y += this.vy;
+
+        // Wrap edges
+        if (this.x < 0) this.x = W;
+        if (this.x > W) this.x = 0;
+        if (this.y < 0) this.y = H;
+        if (this.y > H) this.y = 0;
+
+        // Fade trail effect via alpha
+        this.alpha *= 0.995;
+      }
+
+      draw() {
+        ctx.save();
+        ctx.globalAlpha = this.alpha;
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+        ctx.fillStyle = this.color;
+        ctx.shadowBlur = 15;
+        ctx.shadowColor = this.color;
+        ctx.fill();
+        ctx.restore();
+      }
+    }
+
+    // Initialize particles
+    for (let i = 0; i < 400; i++) {
+      particles.push(new Particle());
+    }
+
+    canvas.addEventListener('mousemove', (e) => {
+      mouseX = e.clientX;
+      mouseY = e.clientY;
+    });
+
+    canvas.addEventListener('click', (e) => {
+      mouseX = e.clientX;
+      mouseY = e.clientY;
+      for (let i = 0; i < 15; i++) {
+        const p = new Particle(mouseX, mouseY);
+        p.vx = (Math.random() - 0.5) * 8;
+        p.vy = (Math.random() - 0.5) * 8;
+        p.alpha = 1;
+        particles.push(p);
+      }
+    });
+
+    function setMode(newMode) {
+      mode = newMode;
+      document.querySelectorAll('.btn').forEach(b => b.classList.remove('active'));
+      document.getElementById('btn' + newMode.charAt(0).toUpperCase() + newMode.slice(1)).classList.add('active');
+      document.getElementById('modeLabel').textContent = newMode.toUpperCase();
+    }
+
+    document.getElementById('btnAttract').addEventListener('click', () => setMode('attract'));
+    document.getElementById('btnRepel').addEventListener('click', () => setMode('repel'));
+    document.getElementById('btnVortex').addEventListener('click', () => setMode('vortex'));
+    document.getElementById('btnChaos').addEventListener('click', () => setMode('chaos'));
+    document.getElementById('btnReset').addEventListener('click', () => {
+      particles = [];
+      for (let i = 0; i < 400; i++) {
+        particles.push(new Particle());
+      }
+    });
+
+    function drawConnectionLines() {
+      for (let i = 0; i < particles.length; i++) {
+        for (let j = i + 1; j < particles.length; j++) {
+          const dx = particles[i].x - particles[j].x;
+          const dy = particles[i].y - particles[j].y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+
+          if (dist < 80) {
+            const alpha = (1 - dist / 80) * 0.15;
+            ctx.strokeStyle = `rgba(212, 168, 83, ${alpha})`;
+            ctx.lineWidth = 0.5;
+            ctx.beginPath();
+            ctx.moveTo(particles[i].x, particles[i].y);
+            ctx.lineTo(particles[j].x, particles[j].y);
+            ctx.stroke();
+          }
+        }
+      }
+    }
+
+    function animate() {
+      // Trail effect
+      ctx.fillStyle = 'rgba(10, 10, 10, 0.15)';
+      ctx.fillRect(0, 0, W, H);
+
+      drawConnectionLines();
+
+      particles.forEach(p => {
+        p.update();
+        p.draw();
+      });
+
+      // Remove dead particles
+      particles = particles.filter(p => p.alpha > 0.05);
+
+      // Maintain minimum count
+      while (particles.length < 300) {
+        particles.push(new Particle());
+      }
+
+      document.getElementById('particleCount').textContent = particles.length;
+
+      time += 0.016;
+      requestAnimationFrame(animate);
+    }
+
+    animate();
+  </script>
+</body>
+</html>
