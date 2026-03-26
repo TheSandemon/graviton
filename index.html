@@ -78,6 +78,9 @@
       gap: 12px;
       pointer-events: all;
       align-items: center;
+      flex-wrap: wrap;
+      justify-content: center;
+      max-width: 95vw;
     }
 
     .btn {
@@ -101,6 +104,11 @@
     .btn.active {
       background: #D4A853;
       color: #0a0a0a;
+    }
+
+    .btn.singularity.active {
+      background: linear-gradient(135deg, #D4A853, #ff6b6b);
+      border-color: #ff6b6b;
     }
 
     .slider-group {
@@ -168,9 +176,41 @@
       border-radius: 3px;
       border: 1px solid rgba(0,255,136,0.3);
     }
+
+    .breath-bg {
+      position: fixed;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      pointer-events: none;
+      z-index: 1;
+      background: radial-gradient(ellipse at center, rgba(212,168,83,0.02) 0%, transparent 70%);
+      animation: breathe 8s ease-in-out infinite;
+    }
+
+    @keyframes breathe {
+      0%, 100% { opacity: 0.3; transform: scale(1); }
+      50% { opacity: 0.8; transform: scale(1.05); }
+    }
+
+    .scanlines {
+      position: fixed;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      pointer-events: none;
+      z-index: 5;
+      background: repeating-linear-gradient(
+        0deg,
+        rgba(0, 0, 0, 0.03) 0px,
+        rgba(0, 0, 0, 0.03) 1px,
+        transparent 1px,
+        transparent 2px
+      );
+    }
   </style>
 </head>
 <body>
+  <div class="breath-bg"></div>
+  <div class="scanlines"></div>
   <canvas id="canvas"></canvas>
 
   <div class="ui-layer title-card">
@@ -180,13 +220,15 @@
 
   <div class="ui-layer shortcuts-hint">
     <kbd>1</kbd> ATTRACT &nbsp;<kbd>2</kbd> REPEL &nbsp;<kbd>3</kbd> VORTEX<br>
-    <kbd>4</kbd> WAVE &nbsp;<kbd>5</kbd> CHAOS &nbsp;<kbd>R</kbd> RESET
+    <kbd>4</kbd> WAVE &nbsp;<kbd>5</kbd> CHAOS &nbsp;<kbd>6</kbd> SINGULARITY<br>
+    <kbd>R</kbd> RESET &nbsp;<kbd>P</kbd> +50 PART
   </div>
 
   <div class="ui-layer stats-panel">
     <div class="stat">PARTICLES <span id="particleCount">0</span></div>
     <div class="stat">GRAVITY <span id="gravityVal">1.0</span></div>
     <div class="stat">MODE <span id="modeLabel">ATTRACT</span></div>
+    <div class="stat">VEL <span id="velLabel">—</span></div>
   </div>
 
   <div class="ui-layer controls-panel">
@@ -195,6 +237,7 @@
     <button class="btn" id="btnVortex">VORTEX</button>
     <button class="btn" id="btnWave">WAVE</button>
     <button class="btn" id="btnChaos">CHAOS</button>
+    <button class="btn singularity" id="btnSingularity">SINGULARITY</button>
     <div class="slider-group">
       <span class="slider-label">TRAIL</span>
       <input type="range" id="trailSlider" min="1" max="20" value="15">
@@ -226,6 +269,25 @@
 
     const colors = ['#D4A853', '#00ff88', '#ff6b6b', '#4ecdc4', '#a855f7', '#fbbf24', '#34d399'];
 
+    // Velocity color: slow = gold, fast = neon green, very fast = red
+    function velColor(speed) {
+      const t = Math.min(speed / 8, 1);
+      if (t < 0.5) {
+        // gold to neon green
+        const r = Math.round(212 + (0 - 212) * (t * 2));
+        const g = Math.round(168 + (255 - 168) * (t * 2));
+        const b = Math.round(83 + (136 - 83) * (t * 2));
+        return `rgb(${r},${g},${b})`;
+      } else {
+        // neon green to red
+        const tt = (t - 0.5) * 2;
+        const r = Math.round(0 + (255 - 0) * tt);
+        const g = Math.round(255 + (80 - 255) * tt);
+        const b = Math.round(136 + (80 - 136) * tt);
+        return `rgb(${r},${g},${b})`;
+      }
+    }
+
     function resize() {
       W = canvas.width = window.innerWidth;
       H = canvas.height = window.innerHeight;
@@ -234,24 +296,31 @@
     window.addEventListener('resize', resize);
 
     class Particle {
-      constructor(x, y) {
+      constructor(x, y, vx = null, vy = null) {
         this.x = x || Math.random() * W;
         this.y = y || Math.random() * H;
-        this.vx = (Math.random() - 0.5) * 2;
-        this.vy = (Math.random() - 0.5) * 2;
+        this.vx = vx !== null ? vx : (Math.random() - 0.5) * 2;
+        this.vy = vy !== null ? vy : (Math.random() - 0.5) * 2;
         this.radius = Math.random() * 3 + 1.5;
         this.baseRadius = this.radius;
         this.color = colors[Math.floor(Math.random() * colors.length)];
+        this.baseColor = this.color;
         this.alpha = Math.random() * 0.5 + 0.5;
         this.life = 1;
         this.decay = Math.random() * 0.003 + 0.001;
         this.pulseOffset = Math.random() * Math.PI * 2;
+        this.trail = [];
+        this.maxTrail = 12;
       }
 
       update() {
         const dx = mouseX - this.x;
         const dy = mouseY - this.y;
         const dist = Math.sqrt(dx * dx + dy * dy);
+
+        // Store trail position
+        if (this.trail.length >= this.maxTrail) this.trail.shift();
+        this.trail.push({ x: this.x, y: this.y, alpha: this.alpha });
 
         if (dist < mouseRadius && dist > 0) {
           const force = (mouseRadius - dist) / mouseRadius;
@@ -281,7 +350,26 @@
           } else if (mode === 'chaos') {
             this.vx += (Math.random() - 0.5) * gravity * force * 3;
             this.vy += (Math.random() - 0.5) * gravity * force * 3;
+          } else if (mode === 'singularity') {
+            // Deep gravity well — inverse square pull
+            const wellForce = (gravity * 3) / Math.max(dist / 80, 0.3);
+            this.vx -= nx * wellForce * force;
+            this.vy -= ny * wellForce * force;
+            // Tangential spin for accretion disk effect
+            const perpX = -ny;
+            const perpY = nx;
+            this.vx += perpX * wellForce * 0.4;
+            this.vy += perpY * wellForce * 0.4;
           }
+        } else if (mode === 'singularity' && dist > 0) {
+          // Global singularity pull from mouse even outside radius
+          const wellForce = (gravity * 2) / Math.max(dist / 200, 0.5);
+          this.vx -= dx / dist * wellForce * 0.3;
+          this.vy -= dy / dist * wellForce * 0.3;
+          const perpX = -dy / dist;
+          const perpY = dx / dist;
+          this.vx += perpX * wellForce * 0.15;
+          this.vy += perpY * wellForce * 0.15;
         }
 
         // Gentle global pull toward center
@@ -291,24 +379,57 @@
         this.vy += cdy * 0.00005;
 
         // Damping
-        this.vx *= 0.98;
-        this.vy *= 0.98;
+        const damping = mode === 'singularity' ? 0.995 : 0.98;
+        this.vx *= damping;
+        this.vy *= damping;
 
         this.x += this.vx;
         this.y += this.vy;
 
-        // Wrap edges
-        if (this.x < 0) this.x = W;
-        if (this.x > W) this.x = 0;
-        if (this.y < 0) this.y = H;
-        if (this.y > H) this.y = 0;
+        // Wrap edges (disabled in singularity — they fall into the well)
+        if (mode !== 'singularity') {
+          if (this.x < 0) this.x = W;
+          if (this.x > W) this.x = 0;
+          if (this.y < 0) this.y = H;
+          if (this.y > H) this.y = 0;
+        }
 
-        // Pulse radius
-        const pulse = Math.sin(time * 2 + this.pulseOffset) * 0.3;
-        this.radius = this.baseRadius * (1 + pulse * 0.3);
+        // Speed-based color in singularity mode
+        const speed = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
+        if (mode === 'singularity') {
+          this.color = velColor(speed);
+          // Stretch particles near center
+          if (dist < 100) {
+            this.radius = this.baseRadius * (1 + (1 - dist / 100) * 1.5);
+          } else {
+            this.radius = this.baseRadius;
+          }
+        } else {
+          this.color = this.baseColor;
+          // Pulse radius
+          const pulse = Math.sin(time * 2 + this.pulseOffset) * 0.3;
+          this.radius = this.baseRadius * (1 + pulse * 0.3);
+        }
 
         // Fade trail
         this.alpha *= (1 - trailFade * 0.01);
+      }
+
+      drawTrail() {
+        if (this.trail.length < 2 || mode !== 'singularity') return;
+        ctx.save();
+        for (let i = 0; i < this.trail.length - 1; i++) {
+          const t = this.trail[i];
+          const alpha = (i / this.trail.length) * 0.3 * this.alpha;
+          ctx.strokeStyle = this.color;
+          ctx.globalAlpha = alpha;
+          ctx.lineWidth = this.radius * (i / this.trail.length) * 0.8;
+          ctx.beginPath();
+          ctx.moveTo(t.x, t.y);
+          ctx.lineTo(this.trail[i + 1].x, this.trail[i + 1].y);
+          ctx.stroke();
+        }
+        ctx.restore();
       }
 
       draw() {
@@ -322,6 +443,67 @@
         ctx.fill();
         ctx.restore();
       }
+    }
+
+    // Draw singularity center (accretion disk)
+    function drawSingularityCenter() {
+      if (mode !== 'singularity') return;
+      const cx = mouseX || W / 2;
+      const cy = mouseY || H / 2;
+      const pulse = Math.sin(time * 4) * 0.2 + 1;
+      const r = 8 * pulse;
+
+      // Outer glow rings
+      for (let i = 5; i >= 1; i--) {
+        const ringR = r + i * 12;
+        const alpha = 0.05 / i;
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(cx, cy, ringR, 0, Math.PI * 2);
+        ctx.strokeStyle = `rgba(255, 80, 60, ${alpha})`;
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      // Core
+      const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, r * 2);
+      grad.addColorStop(0, 'rgba(255, 255, 255, 0.9)');
+      grad.addColorStop(0.3, 'rgba(255, 107, 107, 0.8)');
+      grad.addColorStop(0.7, 'rgba(212, 168, 83, 0.4)');
+      grad.addColorStop(1, 'rgba(212, 168, 83, 0)');
+
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(cx, cy, r * 2, 0, Math.PI * 2);
+      ctx.fillStyle = grad;
+      ctx.shadowBlur = 30;
+      ctx.shadowColor = '#ff6b6b';
+      ctx.fill();
+      ctx.restore();
+
+      // Event horizon — dark center
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(cx, cy, r * 0.8, 0, Math.PI * 2);
+      ctx.fillStyle = '#000';
+      ctx.fill();
+      ctx.restore();
+
+      // Accretion disk arcs
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.rotate(time * 0.5);
+      for (let i = 0; i < 3; i++) {
+        const angle = (i / 3) * Math.PI * 2;
+        const arcR = 30 + i * 15;
+        ctx.beginPath();
+        ctx.arc(0, 0, arcR, angle, angle + Math.PI * 0.8);
+        ctx.strokeStyle = `rgba(255, 107, 107, ${0.15 - i * 0.03})`;
+        ctx.lineWidth = 2 - i * 0.4;
+        ctx.stroke();
+      }
+      ctx.restore();
     }
 
     // Initialize particles
@@ -338,9 +520,9 @@
       mouseX = e.clientX;
       mouseY = e.clientY;
       for (let i = 0; i < 15; i++) {
-        const p = new Particle(mouseX, mouseY);
-        p.vx = (Math.random() - 0.5) * 8;
-        p.vy = (Math.random() - 0.5) * 8;
+        const angle = Math.random() * Math.PI * 2;
+        const speed = Math.random() * 5 + 2;
+        const p = new Particle(mouseX, mouseY, Math.cos(angle) * speed, Math.sin(angle) * speed);
         p.alpha = 1;
         particles.push(p);
       }
@@ -357,9 +539,9 @@
       mouseX = e.touches[0].clientX;
       mouseY = e.touches[0].clientY;
       for (let i = 0; i < 10; i++) {
-        const p = new Particle(mouseX, mouseY);
-        p.vx = (Math.random() - 0.5) * 6;
-        p.vy = (Math.random() - 0.5) * 6;
+        const angle = Math.random() * Math.PI * 2;
+        const speed = Math.random() * 4 + 2;
+        const p = new Particle(mouseX, mouseY, Math.cos(angle) * speed, Math.sin(angle) * speed);
         p.alpha = 1;
         particles.push(p);
       }
@@ -368,7 +550,7 @@
     function setMode(newMode) {
       mode = newMode;
       document.querySelectorAll('.btn').forEach(b => b.classList.remove('active'));
-      const modeNames = { attract: 'Attract', repel: 'Repel', vortex: 'Vortex', wave: 'Wave', chaos: 'Chaos' };
+      const modeNames = { attract: 'Attract', repel: 'Repel', vortex: 'Vortex', wave: 'Wave', chaos: 'Chaos', singularity: 'Singularity' };
       const btnId = 'btn' + modeNames[newMode];
       const btn = document.getElementById(btnId);
       if (btn) btn.classList.add('active');
@@ -381,6 +563,7 @@
     document.getElementById('btnVortex').addEventListener('click', () => setMode('vortex'));
     document.getElementById('btnWave').addEventListener('click', () => setMode('wave'));
     document.getElementById('btnChaos').addEventListener('click', () => setMode('chaos'));
+    document.getElementById('btnSingularity').addEventListener('click', () => setMode('singularity'));
     document.getElementById('btnReset').addEventListener('click', () => {
       particles = [];
       for (let i = 0; i < 400; i++) {
@@ -405,16 +588,29 @@
       else if (key === '3') setMode('vortex');
       else if (key === '4') setMode('wave');
       else if (key === '5') setMode('chaos');
+      else if (key === '6') setMode('singularity');
       else if (key === 'r') {
         particles = [];
         for (let i = 0; i < 400; i++) {
           particles.push(new Particle());
         }
       }
+      else if (key === 'p') {
+        // Add 50 particles at mouse
+        for (let i = 0; i < 50; i++) {
+          const angle = Math.random() * Math.PI * 2;
+          const speed = Math.random() * 4 + 1;
+          const p = new Particle(mouseX || W/2, mouseY || H/2, Math.cos(angle) * speed, Math.sin(angle) * speed);
+          p.alpha = 1;
+          particles.push(p);
+        }
+      }
     });
 
     function drawConnectionLines() {
+      if (mode === 'singularity') return; // disabled for performance + aesthetics
       const maxDist = 80 + glowSize;
+      ctx.save();
       for (let i = 0; i < particles.length; i++) {
         for (let j = i + 1; j < particles.length; j++) {
           const dx = particles[i].x - particles[j].x;
@@ -432,6 +628,7 @@
           }
         }
       }
+      ctx.restore();
     }
 
     function drawGrid() {
@@ -462,8 +659,12 @@
       drawGrid();
       drawConnectionLines();
 
+      // Draw singularity center first (behind particles)
+      drawSingularityCenter();
+
       particles.forEach(p => {
         p.update();
+        p.drawTrail();
         p.draw();
       });
 
@@ -475,7 +676,14 @@
         particles.push(new Particle());
       }
 
+      // Update stats
       document.getElementById('particleCount').textContent = particles.length;
+      if (mode === 'singularity' && particles.length > 0) {
+        const avgVel = particles.reduce((s, p) => s + Math.sqrt(p.vx * p.vx + p.vy * p.vy), 0) / particles.length;
+        document.getElementById('velLabel').textContent = avgVel.toFixed(1);
+      } else {
+        document.getElementById('velLabel').textContent = '—';
+      }
 
       time += 0.016;
       requestAnimationFrame(animate);
