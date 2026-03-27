@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Graviton — Particle Gravity Lab</title>
+  <title>Graviton - Particle Gravity Lab</title>
   <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@300;500;700&display=swap" rel="stylesheet">
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -126,6 +126,19 @@
       text-transform: uppercase;
     }
 
+    .btn.lines {
+      border-color: #4ecdc4;
+      color: #4ecdc4;
+    }
+    .btn.lines:hover {
+      background: rgba(78, 205, 196, 0.25);
+      box-shadow: 0 0 20px rgba(78, 205, 196, 0.3);
+    }
+    .btn.lines.active {
+      background: #4ecdc4;
+      color: #0a0a0a;
+    }
+
     input[type="range"] {
       -webkit-appearance: none;
       width: 80px;
@@ -221,14 +234,14 @@
   <div class="ui-layer shortcuts-hint">
     <kbd>1</kbd> ATTRACT &nbsp;<kbd>2</kbd> REPEL &nbsp;<kbd>3</kbd> VORTEX<br>
     <kbd>4</kbd> WAVE &nbsp;<kbd>5</kbd> CHAOS &nbsp;<kbd>6</kbd> SINGULARITY<br>
-    <kbd>R</kbd> RESET &nbsp;<kbd>P</kbd> +50 PART
+    <kbd>7</kbd> COLLIDE &nbsp;<kbd>L</kbd> LINES TOGGLE &nbsp;<kbd>R</kbd> RESET &nbsp;<kbd>P</kbd> +50 PART
   </div>
 
   <div class="ui-layer stats-panel">
     <div class="stat">PARTICLES <span id="particleCount">0</span></div>
     <div class="stat">GRAVITY <span id="gravityVal">1.0</span></div>
     <div class="stat">MODE <span id="modeLabel">ATTRACT</span></div>
-    <div class="stat">VEL <span id="velLabel">—</span></div>
+    <div class="stat">VEL <span id="velLabel">-</span></div>
   </div>
 
   <div class="ui-layer controls-panel">
@@ -238,6 +251,11 @@
     <button class="btn" id="btnWave">WAVE</button>
     <button class="btn" id="btnChaos">CHAOS</button>
     <button class="btn singularity" id="btnSingularity">SINGULARITY</button>
+    <button class="btn" id="btnCollide">COLLIDE</button>
+    <div class="slider-group">
+      <span class="slider-label">GRAV</span>
+      <input type="range" id="gravSlider" min="1" max="30" value="15">
+    </div>
     <div class="slider-group">
       <span class="slider-label">TRAIL</span>
       <input type="range" id="trailSlider" min="1" max="20" value="15">
@@ -246,11 +264,12 @@
       <span class="slider-label">GLOW</span>
       <input type="range" id="glowSlider" min="5" max="30" value="15">
     </div>
+    <button class="btn lines active" id="btnLines">LINES</button>
     <button class="btn" id="btnReset">RESET</button>
   </div>
 
   <div class="ui-layer mode-indicator">
-    INTERACTIVE — CLICK TO SPAWN &nbsp;|&nbsp; DRAG TO INFLUENCE
+    INTERACTIVE - CLICK TO SPAWN &nbsp;|&nbsp; DRAG TO INFLUENCE
   </div>
 
   <script>
@@ -266,6 +285,7 @@
     let time = 0;
     let trailFade = 0.15;
     let glowSize = 15;
+    let showLines = true;
 
     const colors = ['#D4A853', '#00ff88', '#ff6b6b', '#4ecdc4', '#a855f7', '#fbbf24', '#34d399'];
 
@@ -351,7 +371,7 @@
             this.vx += (Math.random() - 0.5) * gravity * force * 3;
             this.vy += (Math.random() - 0.5) * gravity * force * 3;
           } else if (mode === 'singularity') {
-            // Deep gravity well — inverse square pull
+            // Deep gravity well - inverse square pull
             const wellForce = (gravity * 3) / Math.max(dist / 80, 0.3);
             this.vx -= nx * wellForce * force;
             this.vy -= ny * wellForce * force;
@@ -360,6 +380,10 @@
             const perpY = nx;
             this.vx += perpX * wellForce * 0.4;
             this.vy += perpY * wellForce * 0.4;
+          } else if (mode === 'collide') {
+            // Attract + billiard ball collisions with particles
+            this.vx += nx * gravity * force * 1.2;
+            this.vy += ny * gravity * force * 1.2;
           }
         } else if (mode === 'singularity' && dist > 0) {
           // Global singularity pull from mouse even outside radius
@@ -379,15 +403,21 @@
         this.vy += cdy * 0.00005;
 
         // Damping
-        const damping = mode === 'singularity' ? 0.995 : 0.98;
+        const damping = mode === 'singularity' ? 0.995 : (mode === 'collide' ? 0.999 : 0.98);
         this.vx *= damping;
         this.vy *= damping;
 
         this.x += this.vx;
         this.y += this.vy;
 
-        // Wrap edges (disabled in singularity — they fall into the well)
-        if (mode !== 'singularity') {
+        // Wrap edges (disabled in singularity - they fall into the well)
+        // Collide mode: bounce off walls instead of wrapping
+        if (mode === 'collide') {
+          if (this.x < this.radius) { this.x = this.radius; this.vx *= -0.8; }
+          if (this.x > W - this.radius) { this.x = W - this.radius; this.vx *= -0.8; }
+          if (this.y < this.radius) { this.y = this.radius; this.vy *= -0.8; }
+          if (this.y > H - this.radius) { this.y = H - this.radius; this.vy *= -0.8; }
+        } else if (mode !== 'singularity') {
           if (this.x < 0) this.x = W;
           if (this.x > W) this.x = 0;
           if (this.y < 0) this.y = H;
@@ -482,7 +512,7 @@
       ctx.fill();
       ctx.restore();
 
-      // Event horizon — dark center
+      // Event horizon - dark center
       ctx.save();
       ctx.beginPath();
       ctx.arc(cx, cy, r * 0.8, 0, Math.PI * 2);
@@ -550,7 +580,7 @@
     function setMode(newMode) {
       mode = newMode;
       document.querySelectorAll('.btn').forEach(b => b.classList.remove('active'));
-      const modeNames = { attract: 'Attract', repel: 'Repel', vortex: 'Vortex', wave: 'Wave', chaos: 'Chaos', singularity: 'Singularity' };
+      const modeNames = { attract: 'Attract', repel: 'Repel', vortex: 'Vortex', wave: 'Wave', chaos: 'Chaos', singularity: 'Singularity', collide: 'Collide' };
       const btnId = 'btn' + modeNames[newMode];
       const btn = document.getElementById(btnId);
       if (btn) btn.classList.add('active');
@@ -564,6 +594,7 @@
     document.getElementById('btnWave').addEventListener('click', () => setMode('wave'));
     document.getElementById('btnChaos').addEventListener('click', () => setMode('chaos'));
     document.getElementById('btnSingularity').addEventListener('click', () => setMode('singularity'));
+    document.getElementById('btnCollide').addEventListener('click', () => setMode('collide'));
     document.getElementById('btnReset').addEventListener('click', () => {
       particles = [];
       for (let i = 0; i < 400; i++) {
@@ -572,12 +603,27 @@
     });
 
     // Sliders
+    document.getElementById('gravSlider').addEventListener('input', (e) => {
+      gravity = parseInt(e.target.value) / 100;
+      document.getElementById('gravityVal').textContent = gravity.toFixed(2);
+    });
+
     document.getElementById('trailSlider').addEventListener('input', (e) => {
       trailFade = parseInt(e.target.value);
     });
 
     document.getElementById('glowSlider').addEventListener('input', (e) => {
       glowSize = parseInt(e.target.value);
+    });
+
+    document.getElementById('btnLines').addEventListener('click', () => {
+      showLines = !showLines;
+      const btn = document.getElementById('btnLines');
+      if (showLines) {
+        btn.classList.add('active');
+      } else {
+        btn.classList.remove('active');
+      }
     });
 
     // Keyboard shortcuts
@@ -589,6 +635,13 @@
       else if (key === '4') setMode('wave');
       else if (key === '5') setMode('chaos');
       else if (key === '6') setMode('singularity');
+      else if (key === '7') setMode('collide');
+      else if (key === 'l') {
+        showLines = !showLines;
+        const btn = document.getElementById('btnLines');
+        if (showLines) btn.classList.add('active');
+        else btn.classList.remove('active');
+      }
       else if (key === 'r') {
         particles = [];
         for (let i = 0; i < 400; i++) {
@@ -608,7 +661,7 @@
     });
 
     function drawConnectionLines() {
-      if (mode === 'singularity') return; // disabled for performance + aesthetics
+      if (!showLines || mode === 'singularity') return; // disabled for performance + aesthetics
       const maxDist = 80 + glowSize;
       ctx.save();
       for (let i = 0; i < particles.length; i++) {
@@ -671,6 +724,39 @@
       // Remove dead particles
       particles = particles.filter(p => p.alpha > 0.05);
 
+      // Collision step for collide mode - billiard ball physics
+      if (mode === 'collide') {
+        const restitution = 0.85;
+        for (let i = 0; i < particles.length; i++) {
+          for (let j = i + 1; j < particles.length; j++) {
+            const dx = particles[j].x - particles[i].x;
+            const dy = particles[j].y - particles[i].y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            const minDist = particles[i].radius + particles[j].radius;
+            if (dist < minDist && dist > 0) {
+              // Separate particles
+              const overlap = (minDist - dist) / 2;
+              const nx2 = dx / dist;
+              const ny2 = dy / dist;
+              particles[i].x -= nx2 * overlap;
+              particles[i].y -= ny2 * overlap;
+              particles[j].x += nx2 * overlap;
+              particles[j].y += ny2 * overlap;
+              // Elastic collision
+              const dvx = particles[i].vx - particles[j].vx;
+              const dvy = particles[i].vy - particles[j].vy;
+              const dvn = dvx * nx2 + dvy * ny2;
+              if (dvn > 0) {
+                particles[i].vx -= dvn * nx2 * restitution;
+                particles[i].vy -= dvn * ny2 * restitution;
+                particles[j].vx += dvn * nx2 * restitution;
+                particles[j].vy += dvn * ny2 * restitution;
+              }
+            }
+          }
+        }
+      }
+
       // Maintain minimum count
       while (particles.length < 300) {
         particles.push(new Particle());
@@ -682,7 +768,7 @@
         const avgVel = particles.reduce((s, p) => s + Math.sqrt(p.vx * p.vx + p.vy * p.vy), 0) / particles.length;
         document.getElementById('velLabel').textContent = avgVel.toFixed(1);
       } else {
-        document.getElementById('velLabel').textContent = '—';
+        document.getElementById('velLabel').textContent = '-';
       }
 
       time += 0.016;
