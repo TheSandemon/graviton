@@ -111,6 +111,11 @@
       border-color: #ff6b6b;
     }
 
+    .btn.galaxy.active {
+      background: linear-gradient(135deg, #4ecdc4, #a855f7);
+      border-color: #a855f7;
+    }
+
     .slider-group {
       display: flex;
       align-items: center;
@@ -234,7 +239,7 @@
   <div class="ui-layer shortcuts-hint">
     <kbd>1</kbd> ATTRACT &nbsp;<kbd>2</kbd> REPEL &nbsp;<kbd>3</kbd> VORTEX<br>
     <kbd>4</kbd> WAVE &nbsp;<kbd>5</kbd> CHAOS &nbsp;<kbd>6</kbd> SINGULARITY<br>
-    <kbd>7</kbd> COLLIDE &nbsp;<kbd>L</kbd> LINES TOGGLE &nbsp;<kbd>R</kbd> RESET &nbsp;<kbd>P</kbd> +50 PART
+    <kbd>7</kbd> COLLIDE &nbsp;<kbd>8</kbd> GALAXY &nbsp;<kbd>L</kbd> LINES &nbsp;<kbd>E</kbd> BURST
   </div>
 
   <div class="ui-layer stats-panel">
@@ -252,6 +257,7 @@
     <button class="btn" id="btnChaos">CHAOS</button>
     <button class="btn singularity" id="btnSingularity">SINGULARITY</button>
     <button class="btn" id="btnCollide">COLLIDE</button>
+    <button class="btn galaxy" id="btnGalaxy">GALAXY</button>
     <div class="slider-group">
       <span class="slider-label">GRAV</span>
       <input type="range" id="gravSlider" min="1" max="30" value="15">
@@ -269,7 +275,7 @@
   </div>
 
   <div class="ui-layer mode-indicator">
-    INTERACTIVE - CLICK TO SPAWN &nbsp;|&nbsp; DRAG TO INFLUENCE
+    INTERACTIVE - CLICK TO SPAWN &nbsp;|&nbsp; DRAG TO INFLUENCE &nbsp;|&nbsp; <kbd>E</kbd> STARBURST
   </div>
 
   <script>
@@ -287,24 +293,52 @@
     let glowSize = 15;
     let showLines = true;
 
+    // Galaxy state
+    let galaxyArms = 3;
+    let galaxySpin = 1;
+    let galaxyBurstTimer = 0;
+
     const colors = ['#D4A853', '#00ff88', '#ff6b6b', '#4ecdc4', '#a855f7', '#fbbf24', '#34d399'];
 
     // Velocity color: slow = gold, fast = neon green, very fast = red
     function velColor(speed) {
       const t = Math.min(speed / 8, 1);
       if (t < 0.5) {
-        // gold to neon green
         const r = Math.round(212 + (0 - 212) * (t * 2));
         const g = Math.round(168 + (255 - 168) * (t * 2));
         const b = Math.round(83 + (136 - 83) * (t * 2));
         return `rgb(${r},${g},${b})`;
       } else {
-        // neon green to red
         const tt = (t - 0.5) * 2;
         const r = Math.round(0 + (255 - 0) * tt);
         const g = Math.round(255 + (80 - 255) * tt);
         const b = Math.round(136 + (80 - 136) * tt);
         return `rgb(${r},${g},${b})`;
+      }
+    }
+
+    // Galaxy star colors: young blue-white in arms → old gold/red in bulge
+    function galaxyColor(dist, armAngle, galaxyCX, galaxyCY) {
+      const armFactor = Math.pow(Math.max(0, Math.cos(armAngle)), 4); // brightest near arm center
+      const ageFactor = Math.min(dist / 400, 1); // older farther out
+
+      if (armFactor > 0.5) {
+        // Young hot stars in spiral arms - blue-white
+        const t = Math.random();
+        if (t < 0.4) return '#4ecdc4'; // cyan
+        if (t < 0.7) return '#a855f7'; // purple
+        return '#ffffff'; // white
+      } else if (ageFactor < 0.3) {
+        // Bulge - old warm stars
+        const t = ageFactor / 0.3;
+        const r = Math.round(255 - (255 - 212) * t);
+        const g = Math.round(200 - (200 - 168) * t);
+        const b = Math.round(150 - (150 - 83) * t);
+        return `rgb(${r},${g},${b})`;
+      } else {
+        // Halo - scattered old red/brown
+        if (Math.random() < 0.7) return '#fbbf24';
+        return '#D4A853';
       }
     }
 
@@ -331,6 +365,10 @@
         this.pulseOffset = Math.random() * Math.PI * 2;
         this.trail = [];
         this.maxTrail = 12;
+        // Galaxy-specific
+        this.arm = Math.floor(Math.random() * galaxyArms);
+        this.spiralOffset = (Math.random() - 0.5) * 1.2; // spread within arm
+        this.dustSize = Math.random() * 0.5 + 0.3; // dust opacity
       }
 
       update() {
@@ -338,11 +376,50 @@
         const dy = mouseY - this.y;
         const dist = Math.sqrt(dx * dx + dy * dy);
 
-        // Store trail position
         if (this.trail.length >= this.maxTrail) this.trail.shift();
         this.trail.push({ x: this.x, y: this.y, alpha: this.alpha });
 
-        if (dist < mouseRadius && dist > 0) {
+        if (mode === 'galaxy') {
+          const gcx = mouseX || W / 2;
+          const gcy = mouseY || H / 2;
+          const gdx = gcx - this.x;
+          const gdy = gcy - this.y;
+          const gdist = Math.sqrt(gdx * gdx + gdy * gdy) || 1;
+
+          if (gdist > 5) {
+            // Orbital mechanics: v = sqrt(GM/r) for circular orbit
+            // Tweak: use visual orbital speed
+            const orbitalSpeed = Math.sqrt(80 / Math.max(gdist, 20)) * gravity * 15;
+            // Tangential velocity (perpendicular to radius)
+            const tx = -gdy / gdist;
+            const ty = gdx / gdist;
+
+            // Apply orbital velocity
+            this.vx = tx * orbitalSpeed * galaxySpin;
+            this.vy = ty * orbitalSpeed * galaxySpin;
+
+            // Slight inward pull to keep in orbit
+            this.vx -= (gdx / gdist) * orbitalSpeed * 0.08;
+            this.vy -= (gdy / gdist) * orbitalSpeed * 0.08;
+          }
+
+          // Update position
+          this.x += this.vx;
+          this.y += this.vy;
+
+          // Color based on distance from center
+          const newDist = Math.sqrt((this.x - gcx) ** 2 + (this.y - gcy) ** 2);
+          const angle = Math.atan2(this.y - gcy, this.x - gcx);
+          const armAngle = angle - this.spiralOffset - time * galaxySpin * 0.3;
+          this.color = galaxyColor(newDist, armAngle, gcx, gcy);
+
+          // Glow more near center
+          this.radius = this.baseRadius * (1 + Math.max(0, 1 - newDist / 300) * 0.8);
+
+          // Fade near center
+          this.alpha = Math.min(1, gdist / 200) * (Math.random() * 0.2 + 0.7);
+
+        } else if (dist < mouseRadius && dist > 0) {
           const force = (mouseRadius - dist) / mouseRadius;
           const nx = dx / dist;
           const ny = dy / dist;
@@ -371,22 +448,18 @@
             this.vx += (Math.random() - 0.5) * gravity * force * 3;
             this.vy += (Math.random() - 0.5) * gravity * force * 3;
           } else if (mode === 'singularity') {
-            // Deep gravity well - inverse square pull
             const wellForce = (gravity * 3) / Math.max(dist / 80, 0.3);
             this.vx -= nx * wellForce * force;
             this.vy -= ny * wellForce * force;
-            // Tangential spin for accretion disk effect
             const perpX = -ny;
             const perpY = nx;
             this.vx += perpX * wellForce * 0.4;
             this.vy += perpY * wellForce * 0.4;
           } else if (mode === 'collide') {
-            // Attract + billiard ball collisions with particles
             this.vx += nx * gravity * force * 1.2;
             this.vy += ny * gravity * force * 1.2;
           }
         } else if (mode === 'singularity' && dist > 0) {
-          // Global singularity pull from mouse even outside radius
           const wellForce = (gravity * 2) / Math.max(dist / 200, 0.5);
           this.vx -= dx / dist * wellForce * 0.3;
           this.vy -= dy / dist * wellForce * 0.3;
@@ -396,28 +469,37 @@
           this.vy += perpY * wellForce * 0.15;
         }
 
-        // Gentle global pull toward center
-        const cdx = W/2 - this.x;
-        const cdy = H/2 - this.y;
-        this.vx += cdx * 0.00005;
-        this.vy += cdy * 0.00005;
+        // Gentle global pull toward center (non-galaxy modes)
+        if (mode !== 'galaxy') {
+          const cdx = W/2 - this.x;
+          const cdy = H/2 - this.y;
+          this.vx += cdx * 0.00005;
+          this.vy += cdy * 0.00005;
+        }
 
         // Damping
         const damping = mode === 'singularity' ? 0.995 : (mode === 'collide' ? 0.999 : 0.98);
-        this.vx *= damping;
-        this.vy *= damping;
+        if (mode === 'galaxy') {
+          // Very slight damping in galaxy mode for stable orbits
+          this.vx *= 0.999;
+          this.vy *= 0.999;
+        } else {
+          this.vx *= damping;
+          this.vy *= damping;
+        }
 
-        this.x += this.vx;
-        this.y += this.vy;
+        if (mode !== 'galaxy') {
+          this.x += this.vx;
+          this.y += this.vy;
+        }
 
-        // Wrap edges (disabled in singularity - they fall into the well)
-        // Collide mode: bounce off walls instead of wrapping
+        // Edge wrapping (disabled in singularity and galaxy)
         if (mode === 'collide') {
           if (this.x < this.radius) { this.x = this.radius; this.vx *= -0.8; }
           if (this.x > W - this.radius) { this.x = W - this.radius; this.vx *= -0.8; }
           if (this.y < this.radius) { this.y = this.radius; this.vy *= -0.8; }
           if (this.y > H - this.radius) { this.y = H - this.radius; this.vy *= -0.8; }
-        } else if (mode !== 'singularity') {
+        } else if (mode !== 'singularity' && mode !== 'galaxy') {
           if (this.x < 0) this.x = W;
           if (this.x > W) this.x = 0;
           if (this.y < 0) this.y = H;
@@ -428,20 +510,17 @@
         const speed = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
         if (mode === 'singularity') {
           this.color = velColor(speed);
-          // Stretch particles near center
           if (dist < 100) {
             this.radius = this.baseRadius * (1 + (1 - dist / 100) * 1.5);
           } else {
             this.radius = this.baseRadius;
           }
-        } else {
+        } else if (mode !== 'galaxy') {
           this.color = this.baseColor;
-          // Pulse radius
           const pulse = Math.sin(time * 2 + this.pulseOffset) * 0.3;
           this.radius = this.baseRadius * (1 + pulse * 0.3);
         }
 
-        // Fade trail
         this.alpha *= (1 - trailFade * 0.01);
       }
 
@@ -473,9 +552,30 @@
         ctx.fill();
         ctx.restore();
       }
+
+      drawGalaxy() {
+        ctx.save();
+        ctx.globalAlpha = this.alpha;
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+        ctx.fillStyle = this.color;
+        ctx.shadowBlur = glowSize * 1.5;
+        ctx.shadowColor = this.color;
+        ctx.fill();
+
+        // Extra glow for bright young stars
+        if (this.color === '#ffffff' || this.color === '#4ecdc4') {
+          ctx.globalAlpha = this.alpha * 0.3;
+          ctx.beginPath();
+          ctx.arc(this.x, this.y, this.radius * 3, 0, Math.PI * 2);
+          ctx.fillStyle = this.color;
+          ctx.fill();
+        }
+        ctx.restore();
+      }
     }
 
-    // Draw singularity center (accretion disk)
+    // Draw singularity center
     function drawSingularityCenter() {
       if (mode !== 'singularity') return;
       const cx = mouseX || W / 2;
@@ -483,7 +583,6 @@
       const pulse = Math.sin(time * 4) * 0.2 + 1;
       const r = 8 * pulse;
 
-      // Outer glow rings
       for (let i = 5; i >= 1; i--) {
         const ringR = r + i * 12;
         const alpha = 0.05 / i;
@@ -496,7 +595,6 @@
         ctx.restore();
       }
 
-      // Core
       const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, r * 2);
       grad.addColorStop(0, 'rgba(255, 255, 255, 0.9)');
       grad.addColorStop(0.3, 'rgba(255, 107, 107, 0.8)');
@@ -512,7 +610,6 @@
       ctx.fill();
       ctx.restore();
 
-      // Event horizon - dark center
       ctx.save();
       ctx.beginPath();
       ctx.arc(cx, cy, r * 0.8, 0, Math.PI * 2);
@@ -520,7 +617,6 @@
       ctx.fill();
       ctx.restore();
 
-      // Accretion disk arcs
       ctx.save();
       ctx.translate(cx, cy);
       ctx.rotate(time * 0.5);
@@ -536,6 +632,94 @@
       ctx.restore();
     }
 
+    // Draw galaxy center - glowing bulge + dust
+    function drawGalaxyCenter() {
+      if (mode !== 'galaxy') return;
+      const cx = mouseX || W / 2;
+      const cy = mouseY || H / 2;
+
+      // Outer dust halo
+      for (let i = 4; i >= 1; i--) {
+        const ringR = 20 + i * 30;
+        const alpha = 0.02 / i;
+        const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, ringR);
+        grad.addColorStop(0, `rgba(212, 168, 83, ${alpha})`);
+        grad.addColorStop(1, 'rgba(212, 168, 83, 0)');
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(cx, cy, ringR, 0, Math.PI * 2);
+        ctx.fillStyle = grad;
+        ctx.fill();
+        ctx.restore();
+      }
+
+      // Glowing core
+      const coreGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, 40);
+      coreGrad.addColorStop(0, 'rgba(255, 255, 255, 0.6)');
+      coreGrad.addColorStop(0.2, 'rgba(212, 168, 83, 0.4)');
+      coreGrad.addColorStop(0.5, 'rgba(168, 100, 50, 0.2)');
+      coreGrad.addColorStop(1, 'rgba(100, 60, 30, 0)');
+
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(cx, cy, 40, 0, Math.PI * 2);
+      ctx.fillStyle = coreGrad;
+      ctx.shadowBlur = 60;
+      ctx.shadowColor = '#D4A853';
+      ctx.fill();
+      ctx.restore();
+
+      // Spiral arm guide rings
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.rotate(time * galaxySpin * 0.2);
+      for (let arm = 0; arm < galaxyArms; arm++) {
+        const baseAngle = (arm / galaxyArms) * Math.PI * 2;
+        for (let r = 60; r < 350; r += 40) {
+          const spiralAngle = baseAngle + Math.log(r / 60) * 1.5 - time * galaxySpin * 0.15;
+          const px = Math.cos(spiralAngle) * r;
+          const py = Math.sin(spiralAngle) * r;
+          const ringAlpha = 0.03 * (1 - r / 350);
+          ctx.beginPath();
+          ctx.arc(px, py, 15 + r * 0.05, 0, Math.PI * 2);
+          ctx.strokeStyle = `rgba(78, 205, 196, ${ringAlpha})`;
+          ctx.lineWidth = 0.5;
+          ctx.stroke();
+        }
+      }
+      ctx.restore();
+    }
+
+    // Background stars for galaxy mode
+    let bgStars = null;
+    function initBgStars() {
+      bgStars = [];
+      for (let i = 0; i < 200; i++) {
+        bgStars.push({
+          x: Math.random() * W,
+          y: Math.random() * H,
+          r: Math.random() * 1.2 + 0.3,
+          alpha: Math.random() * 0.4 + 0.1,
+          twinkle: Math.random() * Math.PI * 2
+        });
+      }
+    }
+    initBgStars();
+
+    function drawBgStars() {
+      if (!bgStars) return;
+      bgStars.forEach(s => {
+        const twinkle = Math.sin(time * 2 + s.twinkle) * 0.1 + s.alpha;
+        ctx.save();
+        ctx.globalAlpha = twinkle;
+        ctx.beginPath();
+        ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+        ctx.fillStyle = '#ffffff';
+        ctx.fill();
+        ctx.restore();
+      });
+    }
+
     // Initialize particles
     for (let i = 0; i < 400; i++) {
       particles.push(new Particle());
@@ -549,16 +733,17 @@
     canvas.addEventListener('click', (e) => {
       mouseX = e.clientX;
       mouseY = e.clientY;
-      for (let i = 0; i < 15; i++) {
+      const spawnCount = mode === 'galaxy' ? 20 : 15;
+      const burstSpeed = mode === 'galaxy' ? 3 : 5;
+      for (let i = 0; i < spawnCount; i++) {
         const angle = Math.random() * Math.PI * 2;
-        const speed = Math.random() * 5 + 2;
+        const speed = Math.random() * burstSpeed + 2;
         const p = new Particle(mouseX, mouseY, Math.cos(angle) * speed, Math.sin(angle) * speed);
         p.alpha = 1;
         particles.push(p);
       }
     });
 
-    // Touch support
     canvas.addEventListener('touchmove', (e) => {
       e.preventDefault();
       mouseX = e.touches[0].clientX;
@@ -580,7 +765,7 @@
     function setMode(newMode) {
       mode = newMode;
       document.querySelectorAll('.btn').forEach(b => b.classList.remove('active'));
-      const modeNames = { attract: 'Attract', repel: 'Repel', vortex: 'Vortex', wave: 'Wave', chaos: 'Chaos', singularity: 'Singularity', collide: 'Collide' };
+      const modeNames = { attract: 'Attract', repel: 'Repel', vortex: 'Vortex', wave: 'Wave', chaos: 'Chaos', singularity: 'Singularity', collide: 'Collide', galaxy: 'Galaxy' };
       const btnId = 'btn' + modeNames[newMode];
       const btn = document.getElementById(btnId);
       if (btn) btn.classList.add('active');
@@ -595,6 +780,7 @@
     document.getElementById('btnChaos').addEventListener('click', () => setMode('chaos'));
     document.getElementById('btnSingularity').addEventListener('click', () => setMode('singularity'));
     document.getElementById('btnCollide').addEventListener('click', () => setMode('collide'));
+    document.getElementById('btnGalaxy').addEventListener('click', () => setMode('galaxy'));
     document.getElementById('btnReset').addEventListener('click', () => {
       particles = [];
       for (let i = 0; i < 400; i++) {
@@ -626,6 +812,29 @@
       }
     });
 
+    // Galaxy burst effect
+    function triggerGalaxyBurst() {
+      const cx = mouseX || W / 2;
+      const cy = mouseY || H / 2;
+      for (let i = 0; i < 80; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const speed = Math.random() * 8 + 3;
+        const p = new Particle(cx, cy, Math.cos(angle) * speed, Math.sin(angle) * speed);
+        p.alpha = 1;
+        p.radius = Math.random() * 4 + 2;
+        p.baseRadius = p.radius;
+        // Burst particles get random galaxy colors
+        const colorRoll = Math.random();
+        if (colorRoll < 0.3) p.color = '#4ecdc4';
+        else if (colorRoll < 0.6) p.color = '#a855f7';
+        else if (colorRoll < 0.8) p.color = '#ffffff';
+        else p.color = '#D4A853';
+        p.baseColor = p.color;
+        particles.push(p);
+      }
+      galaxyBurstTimer = 0.5; // seconds of burst effect
+    }
+
     // Keyboard shortcuts
     document.addEventListener('keydown', (e) => {
       const key = e.key.toLowerCase();
@@ -636,6 +845,7 @@
       else if (key === '5') setMode('chaos');
       else if (key === '6') setMode('singularity');
       else if (key === '7') setMode('collide');
+      else if (key === '8') setMode('galaxy');
       else if (key === 'l') {
         showLines = !showLines;
         const btn = document.getElementById('btnLines');
@@ -649,7 +859,6 @@
         }
       }
       else if (key === 'p') {
-        // Add 50 particles at mouse
         for (let i = 0; i < 50; i++) {
           const angle = Math.random() * Math.PI * 2;
           const speed = Math.random() * 4 + 1;
@@ -658,10 +867,13 @@
           particles.push(p);
         }
       }
+      else if (key === 'e' && mode === 'galaxy') {
+        triggerGalaxyBurst();
+      }
     });
 
     function drawConnectionLines() {
-      if (!showLines || mode === 'singularity') return; // disabled for performance + aesthetics
+      if (!showLines || mode === 'singularity' || mode === 'galaxy') return;
       const maxDist = 80 + glowSize;
       ctx.save();
       for (let i = 0; i < particles.length; i++) {
@@ -706,25 +918,53 @@
 
     function animate() {
       // Trail effect with variable fade
-      ctx.fillStyle = `rgba(10, 10, 10, ${0.1 + trailFade * 0.005})`;
+      const fadeAlpha = mode === 'galaxy' ? 0.08 : (0.1 + trailFade * 0.005);
+      ctx.fillStyle = `rgba(10, 10, 10, ${fadeAlpha})`;
       ctx.fillRect(0, 0, W, H);
 
-      drawGrid();
-      drawConnectionLines();
+      if (mode === 'galaxy') {
+        drawBgStars();
+        drawGalaxyCenter();
+      } else {
+        drawGrid();
+        drawConnectionLines();
+        drawSingularityCenter();
+      }
 
-      // Draw singularity center first (behind particles)
-      drawSingularityCenter();
-
+      // Draw particles
       particles.forEach(p => {
         p.update();
-        p.drawTrail();
-        p.draw();
+        if (mode === 'galaxy') {
+          p.drawTrail(); // minimal trail in galaxy mode
+          p.drawGalaxy();
+        } else {
+          p.drawTrail();
+          p.draw();
+        }
       });
+
+      // Galaxy burst shockwave ring
+      if (galaxyBurstTimer > 0) {
+        const cx = mouseX || W / 2;
+        const cy = mouseY || H / 2;
+        const burstRadius = (0.5 - galaxyBurstTimer) * 800;
+        const burstAlpha = galaxyBurstTimer * 0.4;
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(cx, cy, burstRadius, 0, Math.PI * 2);
+        ctx.strokeStyle = `rgba(78, 205, 196, ${burstAlpha})`;
+        ctx.lineWidth = 3;
+        ctx.shadowBlur = 20;
+        ctx.shadowColor = '#4ecdc4';
+        ctx.stroke();
+        ctx.restore();
+        galaxyBurstTimer -= 0.016;
+      }
 
       // Remove dead particles
       particles = particles.filter(p => p.alpha > 0.05);
 
-      // Collision step for collide mode - billiard ball physics
+      // Collision step for collide mode
       if (mode === 'collide') {
         const restitution = 0.85;
         for (let i = 0; i < particles.length; i++) {
@@ -734,7 +974,6 @@
             const dist = Math.sqrt(dx * dx + dy * dy);
             const minDist = particles[i].radius + particles[j].radius;
             if (dist < minDist && dist > 0) {
-              // Separate particles
               const overlap = (minDist - dist) / 2;
               const nx2 = dx / dist;
               const ny2 = dy / dist;
@@ -742,7 +981,6 @@
               particles[i].y -= ny2 * overlap;
               particles[j].x += nx2 * overlap;
               particles[j].y += ny2 * overlap;
-              // Elastic collision
               const dvx = particles[i].vx - particles[j].vx;
               const dvy = particles[i].vy - particles[j].vy;
               const dvn = dvx * nx2 + dvy * ny2;
@@ -764,7 +1002,7 @@
 
       // Update stats
       document.getElementById('particleCount').textContent = particles.length;
-      if (mode === 'singularity' && particles.length > 0) {
+      if ((mode === 'singularity' || mode === 'galaxy') && particles.length > 0) {
         const avgVel = particles.reduce((s, p) => s + Math.sqrt(p.vx * p.vx + p.vy * p.vy), 0) / particles.length;
         document.getElementById('velLabel').textContent = avgVel.toFixed(1);
       } else {
